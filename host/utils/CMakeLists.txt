@@ -1,0 +1,172 @@
+#
+# Copyright 2010-2015 Ettus Research LLC
+# Copyright 2018 Ettus Research, a National Instruments Company
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+
+########################################################################
+# First, only utilities which get installed with ENABLE_PYMOD_UTILS
+########################################################################
+if(ENABLE_PYMOD_UTILS OR ENABLE_UTILS)
+    ### RFNoC Image Builder
+    set(CONFIG_PATH "${CMAKE_INSTALL_PREFIX}/${PKG_DATA_DIR}")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/rfnoc_image_builder.py"
+        "${CMAKE_CURRENT_BINARY_DIR}/rfnoc_image_builder"
+    )
+    UHD_INSTALL(PROGRAMS
+        ${CMAKE_CURRENT_BINARY_DIR}/rfnoc_image_builder
+        RENAME rfnoc_image_builder
+        DESTINATION ${RUNTIME_DIR}
+        COMPONENT utilities
+    )
+
+    ### UHD Images downloader
+    # Configure the scripts
+    file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt CMAKE_MANIFEST_CONTENTS)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/uhd_images_downloader.py.in
+        ${CMAKE_CURRENT_BINARY_DIR}/uhd_images_downloader.py
+    @ONLY)
+    # TODO: FIXME when know how.
+    # This is a hack to force cmake regenerate uhd_images_downloader.py
+    # whenever manifest.txt file changed.
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt
+    COPYONLY)
+
+    UHD_INSTALL(PROGRAMS
+        ${CMAKE_CURRENT_BINARY_DIR}/uhd_images_downloader.py
+        DESTINATION ${PKG_LIB_DIR}/utils
+        COMPONENT utilities
+    )
+    # On Linux/Unix systems, also install into $PATH
+    if(LINUX)
+        UHD_INSTALL(PROGRAMS
+            ${CMAKE_CURRENT_BINARY_DIR}/uhd_images_downloader.py
+            RENAME uhd_images_downloader
+            DESTINATION ${RUNTIME_DIR}
+            COMPONENT utilities
+        )
+    endif(LINUX)
+    if(NOT HAVE_PYTHON_MODULE_REQUESTS)
+        message(WARNING
+            "Python module `requests' not found -- uhd_images_downloader.py "
+            "will not work without it.")
+        message(WARNING
+            "You may be able to install this by running 'pip install requests'")
+    endif(NOT HAVE_PYTHON_MODULE_REQUESTS)
+
+endif(ENABLE_PYMOD_UTILS OR ENABLE_UTILS)
+
+if(NOT ENABLE_UTILS)
+    return()
+endif()
+
+########################################################################
+# Utilities that get installed into the runtime path
+########################################################################
+set(util_runtime_sources
+    uhd_config_info.cpp
+    uhd_find_devices.cpp
+    uhd_usrp_probe.cpp
+    uhd_image_loader.cpp
+    uhd_cal_rx_iq_balance.cpp
+    uhd_cal_tx_dc_offset.cpp
+    uhd_cal_tx_iq_balance.cpp
+    uhd_adc_self_cal.cpp
+)
+
+#for each source: build an executable and install
+foreach(util_source ${util_runtime_sources})
+    get_filename_component(util_name ${util_source} NAME_WE)
+    add_executable(${util_name} ${util_source})
+    target_link_libraries(${util_name} uhd ${Boost_LIBRARIES})
+    UHD_INSTALL(TARGETS ${util_name} RUNTIME DESTINATION ${RUNTIME_DIR} COMPONENT utilities)
+endforeach(util_source)
+
+if(ENABLE_PYTHON_API)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/usrpctl.py"
+        "${CMAKE_CURRENT_BINARY_DIR}/usrpctl"
+    )
+    UHD_INSTALL(PROGRAMS
+        ${CMAKE_CURRENT_BINARY_DIR}/usrpctl
+        RENAME usrpctl
+        DESTINATION ${RUNTIME_DIR}
+        COMPONENT utilities
+    )
+endif()
+
+########################################################################
+# Utilities that get installed into the share path
+########################################################################
+set(util_share_sources
+    converter_benchmark.cpp
+    query_gpsdo_sensors.cpp
+    usrp_burn_db_eeprom.cpp
+    usrp_burn_mb_eeprom.cpp
+)
+set(util_share_sources_py
+    converter_benchmark.py
+    convert_cal_data.py
+    uhd_power_cal.py
+)
+if(ENABLE_USB)
+    find_package(LIBUSB)
+    include_directories(${LIBUSB_INCLUDE_DIRS})
+    if(ENABLE_B200)
+        list(APPEND util_share_sources
+            b2xx_fx3_utils.cpp
+        )
+        # Additional include directories for b2xx_fx3_utils
+        include_directories(
+            ${CMAKE_CURRENT_SOURCE_DIR}/../lib/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/../lib/usrp/b200
+            ${CMAKE_CURRENT_SOURCE_DIR}/../lib/usrp/common
+            ${CMAKE_CURRENT_SOURCE_DIR}/../lib/usrp/common/ad9361_driver
+        )
+    endif(ENABLE_B200)
+endif(ENABLE_USB)
+
+if(LINUX AND ENABLE_USB)
+    UHD_INSTALL(FILES
+        uhd-usrp.rules
+        DESTINATION ${PKG_LIB_DIR}/utils
+        COMPONENT utilities
+    )
+endif(LINUX AND ENABLE_USB)
+
+#for each source: build an executable and install
+foreach(util_source ${util_share_sources})
+    get_filename_component(util_name ${util_source} NAME_WE)
+    add_executable(${util_name} ${util_source})
+    target_link_libraries(${util_name} uhd ${Boost_LIBRARIES})
+    UHD_INSTALL(TARGETS ${util_name} RUNTIME DESTINATION ${PKG_LIB_DIR}/utils COMPONENT utilities)
+endforeach(util_source)
+foreach(util_source ${util_share_sources_py})
+    UHD_INSTALL(PROGRAMS
+        ${CMAKE_CURRENT_SOURCE_DIR}/${util_source}
+        DESTINATION ${PKG_LIB_DIR}/utils
+        COMPONENT utilities
+    )
+endforeach(util_source)
+
+########################################################################
+# Other files that are not utilities or executables
+########################################################################
+if(WIN32)
+    set(windows_extra_files
+        FastSendDatagramThreshold.reg
+    )
+    UHD_INSTALL(
+        FILES ${windows_extra_files}
+        DESTINATION ${PKG_DATA_DIR}
+        COMPONENT utilities
+    )
+endif(WIN32)
+
+add_subdirectory(latency)
